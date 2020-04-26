@@ -1,4 +1,4 @@
-#!/bin/sh  /etc/rc.common
+#!/bin/sh /etc/rc.common
 #
 # Copyright (C) 2017 openwrt-ssr
 # Copyright (C) 2017 yushi studio <ywb94@qq.com>
@@ -6,7 +6,9 @@
 # This is free software, licensed under the GNU General Public License v3.
 # See /LICENSE for more information.
 #
-
+LOCK_FILE="/var/lock/ssr-switch.lock"
+[ -f "$LOCK_FILE" ] && exit 2
+touch "$LOCK_FILE"
 cycle_time=60
 switch_time=3
 normal_flag=0
@@ -15,23 +17,18 @@ server_count=0
 NAME=shadowsocksr
 ENABLE_SERVER=nil
 CONFIG_SWTICH_FILE=/var/etc/${NAME}_t.json
-
 [ -n "$1" ] && cycle_time=$1
 [ -n "$2" ] && switch_time=$2
-
 uci_get_by_name() {
 	local ret=$(uci get $NAME.$1.$2 2>/dev/null)
 	echo ${ret:=$3}
 }
-
 uci_get_by_type() {
 	local ret=$(uci get $NAME.@$1[0].$2 2>/dev/null)
 	echo ${ret:=$3}
 }
-
 DEFAULT_SERVER=$(uci_get_by_type global global_server)
 CURRENT_SERVER=$DEFAULT_SERVER
-
 #判断代理是否正常
 check_proxy() {
 	local result=0
@@ -55,7 +52,6 @@ check_proxy() {
 	done
 	return $result
 }
-
 test_proxy() {
 	local servername=$(uci_get_by_name $1 server)
 	local serverport=$(uci_get_by_name $1 server_port)
@@ -75,11 +71,10 @@ test_proxy() {
 		return 1
 	fi
 }
-
 search_proxy() {
 	let server_count=server_count+1
 	[ "$normal_flag" == "1" -a "$server_count" -le "$server_locate" ] && return 0
-	[ "$(uci_get_by_name $1 switch_enable)" != "1" ] && return 1
+	[ "$(uci_get_by_name $1 switch_enable 0)" != "1" ] && return 1
 	[ $ENABLE_SERVER != nil ] && return 0
 	[ "$1" == "$CURRENT_SERVER" ] && return 0
 	local servername=$(uci_get_by_name $1 server)
@@ -98,7 +93,6 @@ search_proxy() {
 	else
 		return 1
 	fi
-
 }
 #选择可用的代理
 select_proxy() {
@@ -108,17 +102,14 @@ select_proxy() {
 	server_count=0
 	config_foreach search_proxy servers
 }
-
 #切换代理
 switch_proxy() {
 	/etc/init.d/shadowsocksr restart $1
 	return 0
 }
-
 start() {
 	#不支持kcptun启用时的切换
 	[ $(uci_get_by_name $DEFAULT_SERVER kcp_enable) = "1" ] && return 1
-
 	while [ "1" == "1" ]; do #死循环
 		sleep $cycle_time
 		LOGTIME=$(date "+%Y-%m-%d %H:%M:%S")
@@ -133,7 +124,7 @@ start() {
 				#缺省服务器正常，切换回来
 				CURRENT_SERVER=$DEFAULT_SERVER
 				switch_proxy $CURRENT_SERVER
-				echo "$(date "+%Y-%m-%d %H:%M:%S") switch to default ["$(uci_get_by_name $CURRENT_SERVER server)"] proxy!" >>/tmp/ssrplus.log
+				echo "$(date "+%Y-%m-%d %H:%M:%S") switch to default "$(uci_get_by_name $CURRENT_SERVER alias)" proxy!" >>/tmp/ssrplus.log
 			else
 				echo "$(date "+%Y-%m-%d %H:%M:%S") Main server is NOT avilable.Continue using current server." >>/tmp/ssrplus.log
 			fi
@@ -154,7 +145,7 @@ start() {
 				CURRENT_SERVER=$ENABLE_SERVER
 				switch_proxy $CURRENT_SERVER
 				normal_flag=1
-				echo "$(date "+%Y-%m-%d %H:%M:%S") ShadowsocksR server switch OK" >>/tmp/ssrplus.log
+				echo "$(date "+%Y-%m-%d %H:%M:%S") Switch to "$(uci_get_by_name $CURRENT_SERVER alias)" proxy!" >>/tmp/ssrplus.log
 			else
 				switch_proxy $CURRENT_SERVER
 				normal_flag=1
@@ -162,7 +153,7 @@ start() {
 			fi
 		else
 			normal_flag=0
-			echo "$(date "+%Y-%m-%d %H:%M:%S") ShadowsocksR No Problem." >>/tmp/ssrplus.log
+			# echo "$(date "+%Y-%m-%d %H:%M:%S") ShadowsocksR No Problem." >>/tmp/ssrplus.log
 		fi
 	done
 }
